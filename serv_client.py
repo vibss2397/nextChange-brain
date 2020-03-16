@@ -17,6 +17,11 @@ mutex_lock = 0
 temp_json = {}
 t1 = time.time()
 
+async def send_to_server(obj):
+    uri = "ws://localhost:8765"
+    async with websockets.connect(uri) as websocket:
+        await websocket.send(obj)
+
 def initialize_object(values):
     global temp_json
     temp_json['binance'] = {}
@@ -26,7 +31,7 @@ def initialize_object(values):
     temp_json['lbank'] = {}
     temp_json['lbank']['open'] = values[2]
 
-def update_json(message, host):
+async def update_json(message, host):
     global temp_json, mutex_lock, t1
     if(mutex_lock==0):
         message = json.loads(message)
@@ -56,15 +61,41 @@ def update_json(message, host):
         diff = time.time()-t1
         if(diff>=2):
             mutex_lock = 1
-            temp_json['binance']['close'] = temp_json['binance']['last_traded']
-            temp_json['bibox']['close'] = temp_json['bibox']['last_traded']
-            temp_json['lbank']['close'] = temp_json['lbank']['last_traded']
+            if('last_traded' in temp_json['binance']):
+                temp_json['binance']['close'] = temp_json['binance']['last_traded']
+            else:
+                temp_json['binance']['close'] = 0
+                temp_json['binance']['high'] = 0
+                temp_json['binance']['low'] = 0
+            
+            if('last_traded' in temp_json['bibox']):
+                temp_json['bibox']['close'] = temp_json['bibox']['last_traded']
+            else:
+                temp_json['bibox']['close'] = 0
+                temp_json['bibox']['high'] = 0
+                temp_json['bibox']['low'] = 0
+            
+            if('last_traded' in temp_json['lbank']):
+                temp_json['lbank']['close'] = temp_json['lbank']['last_traded']
+            else:
+                temp_json['lbank']['close'] = 0
+                temp_json['lbank']['high'] = 0
+                temp_json['lbank']['low'] = 0
+
+            #code to transmit data to webserver
+            async with websockets.connect('ws://localhost:8765/') as webs:
+                await webs.send(json.dumps(temp_json))
+                # mes = await webs.recv()
+                # print('recieved a messageeeeeeeeeeeeeeeeeeeeeeeee')
+                # print(mes)
             temp_arr = [ temp_json['binance']['close'],  temp_json['bibox']['close'], temp_json['lbank']['close']]
             initialize_object(temp_arr)
+            mutex_lock = 0
             t1 = time.time()
-            #code to transmit data to webserver
-
-    print(temp_json)    
+        #     return 1
+        # return 0
+    print(diff)
+    print(temp_json)   
 
 async def get_data(host, ):
     global mutex_lock, temp_json
@@ -90,8 +121,10 @@ async def get_data(host, ):
                     message = gzip.decompress(message)
                     message = message.decode()
                     # print(message)
-                update_json(message, host)
-                    # print('nada')
+                await update_json(message, host)
+                # if(res==1):
+                #     await send_to_server(temp_json)
+
 
 async def handler(connections):
     await asyncio.wait([get_data(uri) for uri in connections])
@@ -101,6 +134,7 @@ def main():
     connections.add('wss://stream.binance.com:9443/ws/btcusdt@depth5@100ms')
     connections.add('wss://push.bibox.com/')
     connections.add('wss://www.lbkex.net/ws/V2/')
+    # connections.add('ws://localhost:8765/')
     asyncio.get_event_loop().run_until_complete(handler(connections))
 
 if __name__=="__main__":
