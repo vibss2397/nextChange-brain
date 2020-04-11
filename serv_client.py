@@ -44,8 +44,8 @@ async def update_json(message, host):
         elif(host.find('lbk')>=0):
             host_temp = 'lbank'
             last_traded_price = (float(message['depth']['bids'][len(message['depth']['bids'])-1][0]) + float(message['depth']['asks'][len(message['depth']['asks'])-1][0])) /2
-        
-        
+
+
         temp_json[host_temp]['last_traded'] = last_traded_price
         #set high value
         if(not 'high' in temp_json[host_temp]):
@@ -57,7 +57,21 @@ async def update_json(message, host):
             temp_json[host_temp]['low'] = last_traded_price
         elif(last_traded_price<temp_json[host_temp]['low']):
             temp_json[host_temp]['low'] = last_traded_price
-        
+
+        ##
+        # CHANGE REQUEST
+        # Maybe client only sends raw data to the server
+        # then server figures out open/close/high/low based on
+        # it's own choice of precision and its individual clock.
+        # That way we can have varying timeframes for the same data.
+        async with websockets.connect('ws://localhost:8765/') as webs:
+            new_json = {}
+            new_json['host'] = host_temp
+            new_json['time'] = time.time()
+            new_json['last_traded'] = temp_json[host_temp]['last_traded']
+            await webs.send(json.dumps(new_json))
+
+        # If change applied, this becomes obsolete.
         diff = time.time()-t1
         if(diff>=2):
             mutex_lock = 1
@@ -67,14 +81,14 @@ async def update_json(message, host):
                 temp_json['binance']['close'] = 0
                 temp_json['binance']['high'] = 0
                 temp_json['binance']['low'] = 0
-            
+
             if('last_traded' in temp_json['bibox']):
                 temp_json['bibox']['close'] = temp_json['bibox']['last_traded']
             else:
                 temp_json['bibox']['close'] = 0
                 temp_json['bibox']['high'] = 0
                 temp_json['bibox']['low'] = 0
-            
+
             if('last_traded' in temp_json['lbank']):
                 temp_json['lbank']['close'] = temp_json['lbank']['last_traded']
             else:
@@ -83,8 +97,11 @@ async def update_json(message, host):
                 temp_json['lbank']['low'] = 0
 
             #code to transmit data to webserver
-            async with websockets.connect('ws://localhost:8765/') as webs:
-                await webs.send(json.dumps(temp_json))
+            # async with websockets.connect('ws://localhost:8765/') as webs:
+            #     new_json = {}
+            #     new_json['host'] = host_temp
+            #     new_json['last_traded'] = temp_json[host_temp]['last_traded']
+            #     await webs.send(json.dumps(new_json))
                 # mes = await webs.recv()
                 # print('recieved a messageeeeeeeeeeeeeeeeeeeeeeeee')
                 # print(mes)
@@ -95,13 +112,14 @@ async def update_json(message, host):
         #     return 1
         # return 0
     print(diff)
-    print(temp_json)   
+    #print(temp_json)
+    print(new_json)
 
 async def get_data(host, ):
     global mutex_lock, temp_json
     global bibox_json,lbank_json
     initialize_object([0, 0, 0])
-    async with websockets.connect(host, ssl=ssl.SSLContext()) as websocket:    
+    async with websockets.connect(host, ssl=ssl.SSLContext()) as websocket:
         if(host.find('bibox')>0):
             await websocket.send(json.dumps(bibox_json))
         elif(host.find('lbk')>0):
