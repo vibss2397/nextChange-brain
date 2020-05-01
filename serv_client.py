@@ -17,10 +17,13 @@ mutex_lock = 0
 temp_json = {}
 t1 = time.time()
 
-async def send_to_server(obj):
-    uri = "ws://localhost:8765"
+async def send_to_server(obj, host):
+    uri = "ws://localhost:8765/trade?ex=binance&pair=btc-usdt"
     async with websockets.connect(uri) as websocket:
-        await websocket.send(obj)
+        try:
+            await websocket.send(json.dumps(obj))
+        except websockets.exceptions.ConnectionClosed:
+            get_data(host)
 
 def initialize_object(values):
     global temp_json
@@ -31,117 +34,94 @@ def initialize_object(values):
     temp_json['lbank'] = {}
     temp_json['lbank']['open'] = values[2]
 
-async def update_json(message, host):
+def update_json(message, host):
     global temp_json, mutex_lock, t1
-    if(mutex_lock==0):
-        message = json.loads(message)
-        if(host.find('binance')>=0):
-            host_temp = 'binance'
-            last_traded_price = (float(message['bids'][len(message['bids'])-1][0]) + float(message['asks'][len(message['asks'])-1][0])) /2
-        elif(host.find('bibox')>=0):
-            host_temp = 'bibox'
-            last_traded_price = (float(message['bids'][len(message['bids'])-1]['price']) + float(message['asks'][len(message['asks'])-1]['price'])) /2
-        elif(host.find('lbk')>=0):
-            host_temp = 'lbank'
-            last_traded_price = (float(message['depth']['bids'][len(message['depth']['bids'])-1][0]) + float(message['depth']['asks'][len(message['depth']['asks'])-1][0])) /2
+    if(host.find('binance')>=0):
+        host_temp = 'binance'
+        last_traded_price = (float(message['bids'][len(message['bids'])-1][0]) + float(message['asks'][len(message['asks'])-1][0])) /2
+    elif(host.find('bibox')>=0):
+        host_temp = 'bibox'
+        last_traded_price = (float(message['bids'][len(message['bids'])-1]['price']) + float(message['asks'][len(message['asks'])-1]['price'])) /2
+    elif(host.find('lbk')>=0):
+        host_temp = 'lbank'
+        last_traded_price = (float(message['depth']['bids'][len(message['depth']['bids'])-1][0]) + float(message['depth']['asks'][len(message['depth']['asks'])-1][0])) /2
 
+    temp_json[host_temp]['last_traded'] = last_traded_price
+    #set high value
+    if(not 'high' in temp_json[host_temp]):
+        temp_json[host_temp]['high'] = last_traded_price
+    elif(last_traded_price>temp_json[host_temp]['high']):
+        temp_json[host_temp]['high'] = last_traded_price
+    #set low value
+    if(not 'low' in temp_json[host_temp]):
+        temp_json[host_temp]['low'] = last_traded_price
+    elif(last_traded_price<temp_json[host_temp]['low']):
+        temp_json[host_temp]['low'] = last_traded_price
 
-        temp_json[host_temp]['last_traded'] = last_traded_price
-        #set high value
-        if(not 'high' in temp_json[host_temp]):
-            temp_json[host_temp]['high'] = last_traded_price
-        elif(last_traded_price>temp_json[host_temp]['high']):
-            temp_json[host_temp]['high'] = last_traded_price
-        #set low value
-        if(not 'low' in temp_json[host_temp]):
-            temp_json[host_temp]['low'] = last_traded_price
-        elif(last_traded_price<temp_json[host_temp]['low']):
-            temp_json[host_temp]['low'] = last_traded_price
-
-        ##
-        # CHANGE REQUEST
-        # Maybe client only sends raw data to the server
-        # then server figures out open/close/high/low based on
-        # it's own choice of precision and its individual clock.
-        # That way we can have varying timeframes for the same data.
-        async with websockets.connect('ws://localhost:8765/') as webs:
-            new_json = {}
-            new_json['host'] = host_temp
-            new_json['time'] = time.time()
-            new_json['last_traded'] = temp_json[host_temp]['last_traded']
-            await webs.send(json.dumps(new_json))
-
-        # If change applied, this becomes obsolete.
-        diff = time.time()-t1
-        if(diff>=2):
-            mutex_lock = 1
-            if('last_traded' in temp_json['binance']):
-                temp_json['binance']['close'] = temp_json['binance']['last_traded']
-            else:
-                temp_json['binance']['close'] = 0
-                temp_json['binance']['high'] = 0
-                temp_json['binance']['low'] = 0
-
-            if('last_traded' in temp_json['bibox']):
-                temp_json['bibox']['close'] = temp_json['bibox']['last_traded']
-            else:
-                temp_json['bibox']['close'] = 0
-                temp_json['bibox']['high'] = 0
-                temp_json['bibox']['low'] = 0
-
-            if('last_traded' in temp_json['lbank']):
-                temp_json['lbank']['close'] = temp_json['lbank']['last_traded']
-            else:
-                temp_json['lbank']['close'] = 0
-                temp_json['lbank']['high'] = 0
-                temp_json['lbank']['low'] = 0
-
-            #code to transmit data to webserver
-            # async with websockets.connect('ws://localhost:8765/') as webs:
-            #     new_json = {}
-            #     new_json['host'] = host_temp
-            #     new_json['last_traded'] = temp_json[host_temp]['last_traded']
-            #     await webs.send(json.dumps(new_json))
-                # mes = await webs.recv()
-                # print('recieved a messageeeeeeeeeeeeeeeeeeeeeeeee')
-                # print(mes)
-            temp_arr = [ temp_json['binance']['close'],  temp_json['bibox']['close'], temp_json['lbank']['close']]
-            initialize_object(temp_arr)
-            mutex_lock = 0
-            t1 = time.time()
-        #     return 1
-        # return 0
-    print(diff)
-    #print(temp_json)
-    print(new_json)
+    new_json = {}
+    new_json['host'] = host_temp
+    new_json['time'] = time.time()
+    new_json['last_traded'] = temp_json[host_temp]['last_traded']
+    return new_json
 
 async def get_data(host, ):
     global mutex_lock, temp_json
     global bibox_json,lbank_json
     initialize_object([0, 0, 0])
+    temp_arr = []
     async with websockets.connect(host, ssl=ssl.SSLContext()) as websocket:
         if(host.find('bibox')>0):
-            await websocket.send(json.dumps(bibox_json))
+            try:
+                await websocket.send(json.dumps(bibox_json))
+            except websockets.exceptions.ConnectionClosed:
+                get_data(host)
         elif(host.find('lbk')>0):
-            await websocket.send(json.dumps(lbank_json))
+            try:
+                await websocket.send(json.dumps(lbank_json))
+            except websockets.exceptions.ConnectionClosed:
+                get_data(host)
+
         while True:
-            message = await websocket.recv()
+            try:
+                message = await websocket.recv()
+            except websockets.exceptions.ConnectionClosed:
+                get_data(host)
+            print(host)
             if('ping' in message):
                 if(host.find('bibox')>0):
-                    print('ping'+str(json.loads(message)))
-                    await websocket.send(json.dumps({'pong':json.loads(message)['ping']}))
+                    print('ping'+host+str(json.loads(message)))
+                    try: 
+                        await websocket.send(json.dumps({'pong':json.loads(message)['ping']}))
+                    except websockets.exceptions.ConnectionClosed:
+                        get_data(host)
+
+                    print('done'+host)
                 elif(host.find('lbk')>0):
-                    print('ping'+str(json.loads(message)))
-                    await websocket.send(json.dumps({'action':'pong', 'pong':json.loads(message)['ping']}))
+                    print('ping'+host+str(json.loads(message)))
+                    try:
+                        await websocket.send(json.dumps({'action':'pong', 'pong':json.loads(message)['ping']}))
+                    except websockets.exceptions.ConnectionClosed:
+                        get_data(host)
+                    print('done'+host)
             else:
                 if(host.find('bibox')>0):
                     message = base64.b64decode(json.loads(message.replace('[','').replace(']',''))['data'])
                     message = gzip.decompress(message)
                     message = message.decode()
                     # print(message)
-                await update_json(message, host)
-                # if(res==1):
-                #     await send_to_server(temp_json)
+                message = json.loads(message)
+                msg = update_json(message, host)
+                if(host.find('binance')>0):
+                    msg['bids'] = message['bids']
+                    msg['ask'] = message['asks']
+                if(host.find('biki')>0):
+                    msg['bids'] = message['depth']['bids']
+                    msg['ask'] = message['depth']['asks']
+                if(host.find('bibox')>0):
+                    len_bid = len(message['bids'])
+                    msg['bids'] = message['bids'][len_bid-11:len_bid]
+                    msg['ask'] = message['asks'][len_bid-11:len_bid]
+                await send_to_server(msg, host)
 
 
 async def handler(connections):
