@@ -18,7 +18,7 @@ temp_json = {}
 t1 = time.time()
 
 async def send_to_server(obj, host):
-    uri = "ws://localhost:8765/trade?ex=binance&pair=btc-usdt"
+    uri = "ws://localhost:8765/"
     async with websockets.connect(uri) as websocket:
         try:
             await websocket.send(json.dumps(obj))
@@ -31,8 +31,8 @@ def initialize_object(values):
     temp_json['binance']['open'] = values[0]
     temp_json['bibox'] = {}
     temp_json['bibox']['open'] = values[1]
-    temp_json['lbank'] = {}
-    temp_json['lbank']['open'] = values[2]
+    temp_json['lbk'] = {}
+    temp_json['lbk']['open'] = values[2]
 
 def update_json(message, host):
     global temp_json, mutex_lock, t1
@@ -114,7 +114,7 @@ async def get_data(host, ):
                 if(host.find('binance')>0):
                     msg['bids'] = message['bids']
                     msg['ask'] = message['asks']
-                if(host.find('biki')>0):
+                if(host.find('lbk')>0):
                     msg['bids'] = message['depth']['bids']
                     msg['ask'] = message['depth']['asks']
                 if(host.find('bibox')>0):
